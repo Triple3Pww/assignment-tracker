@@ -14,6 +14,7 @@ interface ParsedEvent {
   start: string;
   end: string;
   room: string;
+  link: string;
 }
 
 interface RawEvent {
@@ -22,6 +23,8 @@ interface RawEvent {
   DTEND?: string;
   DESCRIPTION?: string;
   CATEGORIES?: string;
+  URL?: string;
+  UID?: string;
 }
 
 function unfoldLines(text: string): string[] {
@@ -87,7 +90,7 @@ function parseRawEvents(ics: string): RawEvent[] {
       const key = keyPart.split(";")[0];
       if (key === "SUMMARY" || key === "DESCRIPTION" || key === "CATEGORIES") {
         current[key] = unescape(value);
-      } else if (key === "DTSTART" || key === "DTEND") {
+      } else if (key === "DTSTART" || key === "DTEND" || key === "URL" || key === "UID") {
         current[key] = value;
       }
     }
@@ -116,6 +119,19 @@ function extractRoom(description: string): string {
   if (!description) return "";
   const match = description.match(/Room\s*:\s*(.+)/i);
   return match ? match[1].trim() : "";
+}
+
+function extractLink(raw: RawEvent, start: Date): string {
+  if (raw.URL && /^https?:\/\//i.test(raw.URL)) return raw.URL.trim();
+  const desc = raw.DESCRIPTION ?? "";
+  const m = desc.match(/https?:\/\/[^\s)\]]+/);
+  if (m) return m[0].replace(/[.,;]+$/, "");
+  const host = (raw.UID ?? "").split("@")[1];
+  if (host && /^[a-z0-9.\-]+$/i.test(host)) {
+    const unix = Math.floor(start.getTime() / 1000);
+    return `https://${host}/calendar/view.php?view=day&time=${unix}`;
+  }
+  return "";
 }
 
 export async function GET(req: NextRequest) {
@@ -163,6 +179,7 @@ export async function GET(req: NextRequest) {
         start: start.toISOString(),
         end: end.toISOString(),
         room: extractRoom(description),
+        link: extractLink(r, start),
       });
     }
 
